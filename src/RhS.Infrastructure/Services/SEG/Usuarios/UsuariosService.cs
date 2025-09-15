@@ -1,0 +1,183 @@
+using Microsoft.EntityFrameworkCore;
+using RhS.SEG.Application.DTOs.Usuarios;
+using RhS.SEG.Core.Abstractions.SEG.Usuarios;
+using RhS.SEG.Core.Entities;
+using RhS.Infrastructure.Data; 
+using System.Globalization;
+
+namespace RhS.Infrastructure.Services.SEG.Usuarios
+{
+    public sealed class UsuariosService : IUsuariosService
+    {
+        private readonly RhSensoDbContext _db;
+        public UsuariosService(RhSensoDbContext db) => _db = db;
+
+        private static string TipoToStr(string? tipo) =>
+            tipo == "0" ? "Prestador de Serviço"
+          : tipo == "1" ? "Empregado"
+          : $"Tipo {tipo ?? "?"}";
+
+        private static string Situacao(string? flAtivo) =>
+            string.Equals(flAtivo, "S", StringComparison.OrdinalIgnoreCase) ? "Ativo" : "Inativo";
+
+        private static int AsInt(int v) => v;
+        private static int AsInt(int? v) => v.GetValueOrDefault();
+
+        public async Task<List<UsuarioListDto>> GetAllAsync(bool exibirInativos, CancellationToken ct = default)
+        {
+            var q = _db.Usuarios.AsNoTracking();
+            if (!exibirInativos) q = q.Where(x => x.FlAtivo == "S");
+
+            return await q
+                .OrderBy(x => x.CdUsuario)
+                .ThenBy(x => x.DcUsuario)
+                .Select(x => new UsuarioListDto(
+                    x.CdUsuario,
+                    x.DcUsuario,
+                    TipoToStr(x.TpUsuario),
+                    x.EmailUsuario,
+                    Situacao(x.FlAtivo),
+                    x.NoUser,
+                    AsInt(x.CdEmpresa),
+                    AsInt(x.CdFilial)
+                ))
+                .ToListAsync(ct);
+        }
+
+        public async Task<UsuarioListDto?> GetByIdAsync(string codigo, CancellationToken ct = default)
+        {
+            var x = await _db.Usuarios.AsNoTracking()
+                .FirstOrDefaultAsync(u => u.CdUsuario == codigo, ct);
+
+            return x is null ? null
+                : new UsuarioListDto(
+                    x.CdUsuario,
+                    x.DcUsuario,
+                    TipoToStr(x.TpUsuario),
+                    x.EmailUsuario,
+                    Situacao(x.FlAtivo),
+                    x.NoUser,
+                    AsInt(x.CdEmpresa),
+                    AsInt(x.CdFilial)
+                );
+        }
+
+        public async Task CreateAsync(UsuarioCreateDto dto, CancellationToken ct = default)
+        {
+            Validate(dto);
+
+            var login = dto.Codigo.Trim().ToUpperInvariant();
+            var exists = await _db.Usuarios.AnyAsync(x => x.CdUsuario == login, ct);
+            if (exists) throw new InvalidOperationException("Login já existente.");
+
+            var e = new Usuario
+            {
+                CdUsuario = login,
+                DcUsuario = dto.Descricao.Trim(),
+                TpUsuario = dto.Tipo.ToString(CultureInfo.InvariantCulture),
+                SenhaUser = dto.SenhaUser?.Trim(),
+                NoMatric = dto.NoMatric?.Trim(),
+                CdEmpresa = AsInt(dto.CdEmpresa),
+                CdFilial = AsInt(dto.CdFilial),
+                NoUser = dto.NoUser,
+                EmailUsuario = dto.Email?.Trim(),
+                FlAtivo = dto.Ativo,
+                NormalizedUserName = dto.NormalizedUserName?.Trim().ToUpperInvariant(),
+                IdFuncionario = dto.IdFuncionario,          // Guid?
+                FlNaoRecebeEmail = dto.FlNaoRecebeEmail
+            };
+
+            _db.Usuarios.Add(e);
+            await _db.SaveChangesAsync(ct);
+        }
+
+        public async Task UpdateAsync(string codigo, UsuarioUpdateDto dto, CancellationToken ct = default)
+        {
+            var e = await _db.Usuarios.FirstOrDefaultAsync(u => u.CdUsuario == codigo, ct)
+                ?? throw new KeyNotFoundException("Usuário não encontrado.");
+
+            Validate(dto);
+
+            e.DcUsuario = dto.Descricao.Trim();
+            e.TpUsuario = dto.Tipo.ToString(CultureInfo.InvariantCulture);
+            e.SenhaUser = dto.SenhaUser?.Trim();
+            e.NoMatric = dto.NoMatric?.Trim();
+            e.CdEmpresa = AsInt(dto.CdEmpresa);
+            e.CdFilial = AsInt(dto.CdFilial);
+            e.NoUser = dto.NoUser;
+            e.EmailUsuario = dto.Email?.Trim();
+            e.FlAtivo = dto.Ativo;
+            e.NormalizedUserName = dto.NormalizedUserName?.Trim().ToUpperInvariant();
+            e.IdFuncionario = dto.IdFuncionario;           // Guid?
+            e.FlNaoRecebeEmail = dto.FlNaoRecebeEmail;
+
+            await _db.SaveChangesAsync(ct);
+        }
+
+        public async Task DeleteAsync(string codigo, CancellationToken ct = default)
+        {
+            var e = await _db.Usuarios.FirstOrDefaultAsync(u => u.CdUsuario == codigo, ct)
+                ?? throw new KeyNotFoundException("Usuário não encontrado.");
+
+            _db.Usuarios.Remove(e);
+            await _db.SaveChangesAsync(ct);
+        }
+
+        public async Task RedefinirSenhaPadraoAsync(IEnumerable<string> codigos, CancellationToken ct = default)
+        {
+            var set = codigos.Select(c => c.Trim().ToUpperInvariant()).ToHashSet();
+            if (!await _db.Usuarios.AnyAsync(u => set.Contains(u.CdUsuario), ct))
+                throw new KeyNotFoundException("Nenhum usuário encontrado.");
+
+            await Task.CompletedTask;
+        }
+
+        public async Task RedefinirSenhaPadraoUsuarioAsync(string codigo, CancellationToken ct = default)
+        {
+            if (!await _db.Usuarios.AnyAsync(u => u.CdUsuario == codigo, ct))
+                throw new KeyNotFoundException("Usuário não encontrado.");
+
+            await Task.CompletedTask;
+        }
+
+        private static void Validate(UsuarioCreateDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Codigo) || dto.Codigo.Length > 30)
+                throw new ArgumentException("Login inválido (até 30 chars).");
+
+            ValidateCommon(dto.Descricao, dto.Tipo, dto.SenhaUser, dto.NomeImpCheque, dto.NoMatric,
+                           dto.CdEmpresa, dto.CdFilial, dto.NoUser, dto.Email, dto.Ativo,
+                           dto.NormalizedUserName, dto.FlNaoRecebeEmail);
+        }
+
+        private static void Validate(UsuarioUpdateDto dto)
+        {
+            ValidateCommon(dto.Descricao, dto.Tipo, dto.SenhaUser, dto.NomeImpCheque, dto.NoMatric,
+                           dto.CdEmpresa, dto.CdFilial, dto.NoUser, dto.Email, dto.Ativo,
+                           dto.NormalizedUserName, dto.FlNaoRecebeEmail);
+        }
+
+        private static void ValidateCommon(
+            string descricao, int tipo, string? senha, string? nomeImp, string? noMatric,
+            int? cdEmp, int? cdFil, int noUser, string? email, string ativo,
+            string? normalized, string? flNaoRecebeEmail)
+        {
+            if (string.IsNullOrWhiteSpace(descricao) || descricao.Length > 50)
+                throw new ArgumentException("Nome inválido (até 50 chars).");
+
+            if (tipo != 0 && tipo != 1)
+                throw new ArgumentException("Tipo inválido (0=Prestador, 1=Empregado).");
+
+            if (senha is { Length: > 20 }) throw new ArgumentException("Senha excede 20 caracteres.");
+            if (nomeImp is { Length: > 50 }) throw new ArgumentException("Nome p/ cheque excede 50.");
+            if (noMatric is { Length: > 8 }) throw new ArgumentException("Matrícula excede 8.");
+            if (email is { Length: > 100 }) throw new ArgumentException("E-mail excede 100.");
+            if (string.IsNullOrWhiteSpace(ativo) || (ativo != "S" && ativo != "N"))
+                throw new ArgumentException("Situação deve ser 'S' ou 'N'.");
+            if (normalized is { Length: > 30 }) throw new ArgumentException("NormalizedUserName excede 30.");
+            if (flNaoRecebeEmail is not null and not ("S" or "N"))
+                throw new ArgumentException("flnaorecebeemail deve ser 'S' ou 'N' ou null.");
+            if (noUser <= 0) throw new ArgumentException("NoUser deve ser > 0.");
+        }
+    }
+}

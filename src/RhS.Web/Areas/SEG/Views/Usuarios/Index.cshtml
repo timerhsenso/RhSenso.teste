@@ -1,0 +1,58 @@
+
+@{
+    ViewBag.Title = "Usuários";
+    ViewBag.TableId = "grid-usuarios";
+    var api = $"{Context.Request.Scheme}://{Context.Request.Host}/api/v1/Usuarios";
+    ViewBag.ActionsTemplatePartial = "_UsuarioActions";
+}
+<partial name="~/Views/Shared/_DataTable.cshtml" />
+
+@section Scripts {
+<script src="~/js/dtutil.js"></script>
+<script>
+  const FilterBuilder = {
+    _filter: { logic: "and", rules: [] },
+    open() { alert('Abrir modal de filtro'); },
+    getFilter() { return this._filter; }
+  };
+
+  const apiBase = "@api";
+
+  const grid = DTUtil.init({
+    tableId: "@ViewBag.TableId",
+    ajaxUrl: apiBase + "/list",
+    columns: [
+      { data: "cdUsuario", title: "Usuário" },
+      { data: "dcUsuario", title: "Nome" },
+      { data: "emailUsuario", title: "E-mail" },
+      { data: "flAtivo", title: "Ativo" },
+      { data: "noUser", title: "Nº Usuário" }
+    ],
+    selectable: true,
+    actions: true,
+    hideSearch: true,
+    hideLength: true,
+    hideExports: true,
+    filterBuilder: FilterBuilder,
+    endpoints: {
+      exportCsv: apiBase + "/export/csv",
+      exportExcel: apiBase + "/export/excel",
+      exportPdf: apiBase + "/export/pdf"
+    },
+    onEdit: id => window.location.href = `/SEG/Usuarios/Edit/${id}`,
+    onDelete: (id, done) => {
+      if (!confirm("Excluir registro?")) return;
+      fetch(apiBase + "/" + encodeURIComponent(id), { method: "DELETE" })
+        .then(r => r.ok ? done() : r.text().then(t => alert(t || "Falha ao excluir")));
+    },
+    onBulkDelete: (ids, done) => {
+      if (!confirm(\`Excluir \${ids.length} registros?\`)) return;
+      fetch(apiBase + "/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ids)
+      }).then(r => r.ok ? done() : r.text().then(t => alert(t || "Falha no bulk delete")));
+    }
+  });
+</script>
+}

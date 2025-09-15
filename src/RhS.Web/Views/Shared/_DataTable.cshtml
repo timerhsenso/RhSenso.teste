@@ -1,0 +1,37 @@
+
+@{
+    var tableId = (string)ViewBag.TableId;
+    var actionsToolbar = ViewBag.ActionsToolbar as string;
+    var actionsTpl = ViewBag.ActionsTemplatePartial as string;
+}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-secondary d-none" data-dtbtn="export-csv">Exportar CSV</button>
+      <button class="btn btn-outline-secondary d-none" data-dtbtn="export-excel">Exportar Excel</button>
+      <button class="btn btn-outline-secondary d-none" data-dtbtn="export-pdf">Exportar PDF</button>
+      <button class="btn btn-outline-secondary d-none" data-dtbtn="toggle-cols">Mostrar/Ocultar colunas</button>
+      <button class="btn btn-outline-danger d-none" data-dtbtn="bulk-delete">Excluir Selecionados</button>
+      <button class="btn btn-outline-primary" data-dtbtn="open-filter">Filtro</button>
+      <input type="hidden" id="@tableId-search" />
+      <input type="hidden" id="@tableId-length" />
+    </div>
+    <div>@Html.Raw(actionsToolbar)</div>
+  </div>
+  <div class="card-body">
+    <table id="@tableId" class="table table-striped table-hover w-100"></table>
+  </div>
+</div>
+<script type="text/x-template" id="@tableId-actions-tpl">
+  @if(!string.IsNullOrWhiteSpace(actionsTpl))
+  {
+      @await Html.PartialAsync(actionsTpl)
+  }
+  else
+  {
+      <div class="btn-group">
+        <button class="btn btn-sm btn-outline-primary" data-act="edit" data-id="{{id}}">Editar</button>
+        <button class="btn btn-sm btn-outline-danger" data-act="delete" data-id="{{id}}">Excluir</button>
+      </div>
+  }
+</script>
